@@ -1,113 +1,141 @@
 import pybullet as p
 import os
-import ctypes
-import numpy
+import numpy as np
 import time
-import cv2
 
-#Global Variables
-#numOfJoints = range(p.getNumJoints(sawyerId))
-# jids = [5, 10, 11, 12, 13, 15, 18]
-eef_link_id = 7
-jids = [0, 1, 2, 3, 4, 5, 6]
-sawyerId = None     #Call setup function to load this variable
-physicsClientId = None     #Call connect function to load this variable
-
-def connect():
-    global physicsClientId
-    physicsClientId = p.connect(p.GUI)#or p.DIRECT for non-graphical version
-
-def disconnect():
-    p.disconnect()
-
-#gravity must have len of 3
-def setup(gravity, timeStep, urdfFile):
-    global sawyerId
-    global cubeId
-    global Jacobian
-    #TODO: Insert assert statement for len of gravity
-
-    p.setGravity(gravity[0],gravity[1],gravity[2])
-    p.setTimeStep(timeStep)
-    planeId = p.loadURDF("plane.urdf")
-    sawyerId = p.loadURDF(urdfFile, useFixedBase=1,flags=2)
-    cubeId = p.loadURDF('cube_small.urdf', [-0.8,0,0.1])
-    for i in range (p.getNumJoints(sawyerId,physicsClientId)):
-        print(i, p.getJointInfo(sawyerId,i,physicsClientId)[2])
-
-
-#print(p.getConstraintInfo(cubeId,physicsClientId),"\n")
-#print(p.getConstraintState(cubeId,physicsClientId),"\n")
-
-def checkCollision():
-    p.getContactPoints
-
-
-def resetPos(val):
-    for jid in jids:
-        p.resetJointState(sawyerId, jid, targetValue=val, targetVelocity=0.,
-                      physicsClientId=physicsClientId)
-
-    for _ in range(100):
-        p.stepSimulation()
-
-def readQ():
-    jointStates = p.getJointStates(sawyerId, jids)
-    #print("all", jointStates)
-    q = [jointState[0] for jointState in jointStates]
-    return q
-
-def getTargetJointPosition(xyz_pos):
-    target_position = p.getBasePositionAndOrientation(cubeId)
-    #target = p.calculateInverseKinematics(sawyerId, eef_link_id, xyz_pos, (0, 0, 0, 1))
-    target = p.calculateInverseKinematics(sawyerId, eef_link_id, xyz_pos)
-    #print(target)
-    return target
-def getTargetPosition():
-    return p.getBasePositionAndOrientation(cubeId)[0]
-
-#(0.8, -0.2, -0.5)
-#(-0.5187895397113486, 0.0, 0.2014667025921159, 0.045130853517666984, 0.11337679481863136, 0.5080286760282849, 0.49999565712803945, 0.0)
-#(0.2, 0.2, 0.2)
-#(-0.18537198502458477, 0.0, -0.24237853308362692, 0.008155493685609428, -0.14166265832650343, 0.5505875681606421, 0.49999565712803945, 0.0)
-
-def moveTo(joint_position):
-    loopCount = 0
-    thresh = 0.01
-    err = thresh
-    #p.setRealTimeSimulation(1,physicsClientId)
-    start = time.time()
-
-    joint_position = joint_position[:eef_link_id]
-    #print('joint positions modified by Kuan: ', joint_position)
+class Sawyer(object):
+    def __init__(self, urdfFile, GUI=False, gravity=None, timeStep=None, animate=False):
+        
+        self.urdfFile = urdfFile
+        self.eef_link_id = 6
+        self.jids = [0, 1, 2, 3, 4, 5, 6]
+        self.n_actions = 7
+        self.GUI = GUI
+        
+        self.gravity = gravity
+        if self.gravity is None:
+            self.gravity = (0, 0, 0)
+        assert len(self.gravity) == 3
+        
+        self.timeStep = timeStep
+        if self.timeStep is None:
+            self.timeStep = 0.01
+            
+        self.animate = animate
+        self.connect()
+        self.setup(self.urdfFile)
+        #self.reset()
+        self.terminated = False
+        
+    def connect(self):
+        if self.GUI:
+            self.physicsClientId = p.connect(p.GUI)#or p.DIRECT for non-graphical version
+        else:
+            self.physicsClientId = p.connect(p.DIRECT)
     
-    p.setJointMotorControlArray(sawyerId,
-				jointIndices=jids,
-                                controlMode=p.POSITION_CONTROL,
-                                physicsClientId=physicsClientId,
-                                targetPositions=joint_position
-                                )
+    def disconnect(self):
+        p.disconnect(physicsClientId=self.physicsClientId)
+
+    def setup(self, urdfFile):    
+        p.setGravity(self.gravity[0], self.gravity[1], self.gravity[2], physicsClientId=self.physicsClientId)
+        p.setTimeStep(self.timeStep, physicsClientId=self.physicsClientId)
+        self.planeId = p.loadURDF("plane.urdf", physicsClientId=self.physicsClientId)
+        self.cubeId = p.loadURDF('cube_small.urdf', [0.9,0.2,0.1], physicsClientId=self.physicsClientId)
+        self.sawyerId = p.loadURDF(urdfFile, useFixedBase=1,flags=2, physicsClientId=self.physicsClientId)
+
+    def resetPos(self, val):
+        assert len(val) == len(self.jids), "Number of inputs not matching"
+        for i, jid in enumerate(self.jids):
+            p.resetJointState(self.sawyerId, 
+                              jid, 
+                              targetValue=val[i], 
+                              targetVelocity=0.,
+                              physicsClientId=self.physicsClientId)
+
+    def readQ(self):
+        jointStates = p.getJointStates(self.sawyerId, self.jids, physicsClientId=self.physicsClientId)
+        q = [jointState[0] for jointState in jointStates]
+        return q
+
+    def getTargetJointPosition(self, xyz_pos):
+        target = p.calculateInverseKinematics(self.sawyerId, 
+                                              self.eef_link_id, 
+                                              xyz_pos,
+                                              physicsClientId=self.physicsClientId)    
+        return target
+
+    def getTargetPosition(self):
+        return p.getBasePositionAndOrientation(self.cubeId, 
+                                               physicsClientId=self.physicsClientId)[0]
+
+    def getEFFPosition(self):
+        return p.getLinkState(self.sawyerId, self.eef_link_id, physicsClientId=self.physicsClientId)[0]
+
+    def distance(self, a, b):
+        assert len(a) == len(b)
+        return np.sqrt(np.sum(np.square(np.array(a) - np.array(b))))
+        
+    def moveTo(self, joint_position, thresh=0.01):
+        assert not self.terminated
+        loopCount = 0
+        err = thresh
+        assert len(joint_position) == len(self.jids), "Number of inputs not matching"
     
+        p.setJointMotorControlArray(self.sawyerId,
+                                    jointIndices=self.jids,
+                                    controlMode=p.POSITION_CONTROL,
+                                    physicsClientId=self.physicsClientId,
+                                    targetPositions=joint_position)    
+        
+        trace = []
+        flag = True
+        done = False
+        while(err>=thresh):
+            current_joints = self.readQ()
+            trace.append(current_joints)
+            trace = trace[-100:]
+            err = self.distance(current_joints, joint_position)
+            if self.animate:
+                time.sleep(0.01)
+            p.stepSimulation(physicsClientId=self.physicsClientId)
+            loopCount += 1
+            if (len(trace) == 100 and (self.distance(trace[0], trace[-1]) < 0.0001*thresh)) or loopCount>1e3:
+                flag = False
+                break
+        if self.distance(self.getEFFPosition(), self.getTargetPosition()) < thresh:
+            done = True
+        return self.getEFFPosition(), done
 
-    end = time.time()
-        #print('time of one step:', end - start )
-    p.stepSimulation()
-
-    while(err>=thresh):
-        current_joints = readQ()
-        #print("current", current_joints)
-        #print("set to", joint_position)
-        err = sum(((current_joints[i] - joint_position[i]))**2 for i in range(len(joint_position)))
-        p.stepSimulation()
-
-    eef_pos = p.getLinkState(sawyerId, eef_link_id, physicsClientId)[0]
-#print("Cur Joints:", current_joints)
-#print("Des Joints:", joint_position)
-#print("EEF:", eef_pos)
-#print("Error:", (eef_pos[0]-0.3,eef_pos[1]+0.2,eef_pos[2]+0.5))
-#EEF: (0.8546297934954054, -0.19670004904818303, 0.48057521767210976)
-#Error: (0.05462979349540531, 0.8546297934954054, 0.8546297934954054)
-
-# TODO: Camera rendering
-    #img = p.getCameraImage(1000,1000)
-
+    def move(self, action):
+        assert not self.terminated
+        movement = np.zeros((14,))
+        movement[int(action)] = 1
+        movement = np.reshape(movement, (7, 2))
+        movement = np.squeeze(np.matmul(movement, np.array([[0.1], [-0.1]])), axis=-1)
+        pos = self.readQ()
+        pos_ = np.array(pos) + movement
+        eef_pos, flag = self.moveTo(pos_)
+        
+        return flag
+    
+    @property
+    def state(self):
+        pos = np.array(self.readQ())
+        dis = np.array(self.getEFFPosition()) - np.array(self.getTargetPosition())
+        return np.concatenate([pos, dis])
+    
+    def step(self, action, state=None):
+        assert not self.terminated
+        if state is None:
+            state = self.state
+        self.resetPos(state[:7])
+        done = self.move(action)
+        reward = 100*done
+        if done:
+            self.terminated = True
+        return reward
+    
+    def reset(self):
+        self.resetPos([0.]*7)
+        self.terminated = False
+        return self.state

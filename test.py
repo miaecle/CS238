@@ -1,4 +1,5 @@
 import os
+os.chdir(os.environ['HOME'] + '/cs238/CS238')
 import sawyer
 from math import pi
 import time
@@ -7,36 +8,29 @@ import time
 ## Setup Sawyer simulator
 ##########################
 #physicsClient = p.connect(p.GUI)#or p.DIRECT for non-graphical version
+
 sawyer.connect()
 gravity = (0, 0, -9.8)
 timeStep = 0.0001
-#urdfFile = "sawyer.urdf"
-# urdfFile = "/Users/holly/CS221/sawyer_no_base.urdf"
-# urdfFile = "/Users/holly/bullet3/data/sawyer_robot/sawyer_description/urdf/sawyer.urdf"
-urdfFile = "/Users/holly/CS221/rethink/sawyer_description/urdf/sawyer_with_gripper.urdf"
-#print(os.getcwd())
-#os.chdir("/Users/holly/sawyer.git/bin/resources/sawyer")
-#urdfFile = "sawyer_robot/sawyer_description/urdf/sawyer.urdf"
+current_dir = os.getcwd()
+urdfFile = os.path.join(current_dir, "rethink/sawyer_description/urdf/sawyer_no_base.urdf")
 
 sawyer.setup(gravity, timeStep, urdfFile)
-#sawyerId = p.loadURDF("sawyer.urdf", useFixedBase = 1)
-#p.setRealTimeSimulation(1,sawyerId)
-# input("Press Enter to continue...")
 
 
 ############################
 ## Reseting initial position
 ############################
-sawyer.resetPos(0.5)
+sawyer.resetPos([0]*7)
 #time.sleep(1)
 
 
 #######################
 ## input desired position and orientation
 #######################
-pos = (0.8, 0.0, 0.0)
-orn = (1, 0, 0)
-
+xyz_pos =  sawyer.getTargetPosition()
+#pos = sawyer.getTargetJointPosition(xyz_pos)
+pos = [-1]*7
 
 ###################
 ### TODO: ./sawyer sawyer.urdf
@@ -47,20 +41,11 @@ orn = (1, 0, 0)
 ########################
 ## START MOVING
 ########################
-i=0
-
-xyz_pos =  sawyer.getTargetPosition()
-#print(xyz_pos)
-while(1):
-    pos = sawyer.getTargetJointPosition(xyz_pos)
-    sawyer.moveTo(pos)
+while(1):    
+    sawyer.moveTo(pos, 0.001)
     if sawyer.checkCollision():
         print("collision!")
         break
-    #input("Press Enter to continue...")
-#time.sleep(1)
-#sawyer.moveTo((0.5,-0.5,0,0,-0.5,0.5,0))
-#time.sleep(1)
 
 
 
